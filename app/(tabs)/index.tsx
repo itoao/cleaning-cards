@@ -10,49 +10,52 @@
  * Aesthetic: "Soft Kinetic Paper"
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  ImageBackground,
-  Pressable,
-  Platform,
-  Dimensions,
-} from 'react-native';
-import Animated, {
-  FadeIn,
-  FadeOut,
-  SlideInUp,
-  SlideInDown,
-  useSharedValue,
-  useAnimatedStyle,
-  withRepeat,
-  withTiming,
-  withSequence,
-  Easing,
-} from 'react-native-reanimated';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Dimensions,
+  ImageBackground,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  SlideInDown,
+  SlideInUp,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 
-import { Onboarding } from '@/components/onboarding';
 import { CameraGuide } from '@/components/camera-guide';
 import { CardDeck } from '@/components/card-deck';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
+import { Onboarding } from '@/components/onboarding';
+import { Colors, Gradients, Radius, Shadows, Spacing, Typography } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Default background for welcome screen
 const DEFAULT_BG = 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=800&q=80';
 
-type AppState = 'onboarding' | 'welcome' | 'camera' | 'session';
+type AppState = 'onboarding' | 'welcome' | 'camera' | 'session' | 'review';
 
 export default function HomeScreen() {
-  // For demo: skip onboarding after first view
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
   const [appState, setAppState] = useState<AppState>('onboarding');
   const [roomImage, setRoomImage] = useState<string>(DEFAULT_BG);
+  const [cards, setCards] = useState<{ instruction: string }[]>([]);
+  const [reviewMode, setReviewMode] = useState(false);
+  const [finalCheckMessage, setFinalCheckMessage] = useState<string | null>(null);
 
   // Floating animation for decorative elements
   const floatAnim = useSharedValue(0);
@@ -77,24 +80,51 @@ export default function HomeScreen() {
     setAppState('welcome');
   }, []);
 
-  const handleStartCamera = useCallback(() => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-    setAppState('camera');
-  }, []);
+  const startCamera = useCallback(
+    (forReview = false) => {
+      setFinalCheckMessage(null);
+      setReviewMode(forReview);
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+      setAppState('camera');
+    },
+    []
+  );
 
-  const handlePhotoTaken = useCallback((imageUri: string) => {
-    setRoomImage(imageUri);
+  const handleStartCamera = useCallback(() => startCamera(false), [startCamera]);
+  const handleStartReviewCamera = useCallback(() => startCamera(true), [startCamera]);
+
+  const handleAnalysisComplete = useCallback((payload: { imageUri: string; cards: { instruction: string }[] }) => {
+    const normalizedCards = payload.cards ?? [];
+    setRoomImage(payload.imageUri || DEFAULT_BG);
+    setCards(normalizedCards);
+
+    if (reviewMode) {
+      setReviewMode(false);
+      if (normalizedCards.length === 0) {
+        setFinalCheckMessage('LLMによる確認では完了と判断されました');
+        setAppState('welcome');
+        return;
+      }
+      setAppState('session');
+      return;
+    }
+
     setAppState('session');
-  }, []);
+  }, [reviewMode]);
 
   const handleBackToWelcome = useCallback(() => {
+    setCards([]);
+    setFinalCheckMessage(null);
+    setReviewMode(false);
     setAppState('welcome');
   }, []);
 
   const handleSessionComplete = useCallback(() => {
-    // Session complete - could show summary or return to welcome
+    setReviewMode(true);
+    setFinalCheckMessage(null);
+    setAppState('review');
   }, []);
 
   // Render based on app state
@@ -111,7 +141,49 @@ export default function HomeScreen() {
     return (
       <GestureHandlerRootView style={styles.container}>
         <StatusBar style="light" />
-        <CameraGuide onPhotoTaken={handlePhotoTaken} onBack={handleBackToWelcome} />
+        <CameraGuide onAnalysisComplete={handleAnalysisComplete} onBack={handleBackToWelcome} />
+      </GestureHandlerRootView>
+    );
+  }
+
+  if (appState === 'review') {
+    return (
+      <GestureHandlerRootView style={styles.container}>
+        <StatusBar style="dark" />
+        <ImageBackground
+          source={{ uri: roomImage }}
+          style={styles.backgroundImage}
+          resizeMode="cover"
+        >
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={60} tint="light" style={styles.blur} />
+          ) : (
+            <View style={styles.androidBlur} />
+          )}
+        </ImageBackground>
+
+        <LinearGradient
+          colors={Gradients.atmosphere}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.reviewGradient}
+        />
+
+        <View style={styles.reviewPrompt}>
+          <Animated.Text style={styles.reviewTitle}>おつかれさま</Animated.Text>
+          <Animated.Text style={styles.reviewBody}>
+            完了した後の部屋全体をもう一度撮影して、仕上がりを確認させてください
+          </Animated.Text>
+          <Pressable
+            style={({ pressed }) => [
+              styles.reviewButton,
+              pressed && styles.reviewButtonPressed,
+            ]}
+            onPress={handleStartReviewCamera}
+          >
+            <Animated.Text style={styles.reviewButtonText}>撮影する</Animated.Text>
+          </Pressable>
+        </View>
       </GestureHandlerRootView>
     );
   }
@@ -123,7 +195,10 @@ export default function HomeScreen() {
       {/* Background with blur */}
       <ImageBackground
         source={{ uri: roomImage }}
-        style={styles.backgroundImage}
+        style={[
+          styles.backgroundImage,
+          appState === 'welcome' && styles.backgroundImageHidden,
+        ]}
         resizeMode="cover"
       >
         {Platform.OS === 'ios' ? (
@@ -134,7 +209,7 @@ export default function HomeScreen() {
       </ImageBackground>
 
       {/* Decorative gradient overlay */}
-      <View style={styles.gradientOverlay} />
+      {appState !== 'welcome' && <View style={styles.gradientOverlay} />}
 
       {/* Welcome Screen */}
       {appState === 'welcome' && (
@@ -143,7 +218,12 @@ export default function HomeScreen() {
           exiting={FadeOut.duration(400)}
           style={styles.welcomeContainer}
         >
-          {/* Floating decorative card */}
+          <LinearGradient
+            colors={Gradients.atmosphere}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.welcomeGradient}
+          />
           <Animated.View
             entering={SlideInDown.delay(200).duration(800).springify()}
             style={[styles.decorativeCard, floatingStyle]}
@@ -155,50 +235,63 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
 
-          {/* Main content */}
+      {/* Main content */}
           <Animated.View
             entering={SlideInUp.delay(300).duration(700).springify()}
             style={styles.welcomeContent}
           >
-            {/* App title */}
-            <View style={styles.titleContainer}>
-              <Animated.Text style={styles.appTitle}>片付けカード</Animated.Text>
-              <View style={styles.titleAccent} />
+
+            <View style={styles.heroBody}>
+              <Animated.View style={styles.heroBadge}>
+              <LinearGradient
+                colors={Gradients.badge}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.heroBadgeGradient}
+              >
+                  <Animated.Text style={styles.heroBadgeText}>
+                    片付けカードを、ひとつの儀式に
+                  </Animated.Text>
+                </LinearGradient>
+              </Animated.View>
+
+              <Animated.Text style={styles.heroTitle}>
+                1枚のタスクカードが、部屋にやさしいリズムを生む。
+              </Animated.Text>
+              <Animated.Text style={styles.heroSubtitle}>
+                ひとつずつスワイプするだけで、気持ちよく散らかった空間が整っていく。
+              </Animated.Text>
+              {finalCheckMessage && (
+                <Animated.View entering={FadeIn.delay(100).duration(300)} style={styles.reviewMessage}>
+                  <Animated.Text style={styles.reviewMessageText}>{finalCheckMessage}</Animated.Text>
+                </Animated.View>
+              )}
             </View>
-
-            {/* Tagline */}
-            <Animated.View entering={FadeIn.delay(500).duration(500)}>
-              <Animated.Text style={styles.tagline}>
-                スワイプしたら{'\n'}片付け完了
-              </Animated.Text>
-            </Animated.View>
-
-            {/* Description */}
-            <Animated.View
-              entering={FadeIn.delay(700).duration(500)}
-              style={styles.descriptionContainer}
-            >
-              <Animated.Text style={styles.description}>
-                考えなくていい。{'\n'}
-                1つずつ、カードの指示に従うだけ。
-              </Animated.Text>
-            </Animated.View>
 
             {/* Start button */}
             <Animated.View entering={FadeIn.delay(900).duration(500)}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.startButton,
-                  pressed && styles.startButtonPressed,
-                ]}
-                onPress={handleStartCamera}
-              >
-                <View style={styles.buttonIcon}>
-                  <Animated.Text style={styles.buttonIconText}>📷</Animated.Text>
-                </View>
-                <Animated.Text style={styles.startButtonText}>部屋を撮影</Animated.Text>
-                <View style={styles.buttonArrow}>
-                  <Animated.Text style={styles.buttonArrowText}>→</Animated.Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.startButton,
+                pressed && styles.startButtonPressed,
+              ]}
+              onPress={handleStartCamera}
+            >
+              <LinearGradient
+                colors={Gradients.button}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.startButtonGradient}
+                pointerEvents="none"
+              />
+              <View style={styles.startButtonContent}>
+                  <View style={styles.buttonIcon}>
+                    <Animated.Text style={styles.buttonIconText}>📷️</Animated.Text>
+                  </View>
+                  <Animated.Text style={styles.startButtonText}>部屋を撮影</Animated.Text>
+                  <View style={styles.buttonArrow}>
+                    <Animated.Text style={styles.buttonArrowText}>→</Animated.Text>
+                  </View>
                 </View>
               </Pressable>
             </Animated.View>
@@ -239,6 +332,7 @@ export default function HomeScreen() {
         >
           <CardDeck
             roomImage={roomImage}
+            cards={cards}
             onSessionComplete={handleSessionComplete}
             onBack={handleBackToWelcome}
           />
@@ -279,6 +373,9 @@ const styles = StyleSheet.create({
   backgroundImage: {
     ...StyleSheet.absoluteFillObject,
   },
+  backgroundImageHidden: {
+    opacity: 0,
+  },
   blur: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -291,105 +388,128 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.cream,
     opacity: 0.7,
   },
+  welcomeGradient: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 0,
+  },
 
   // Welcome Screen
   welcomeContainer: {
     flex: 1,
-    paddingTop: SCREEN_HEIGHT * 0.1,
+    paddingTop: Platform.select({ ios: Spacing['3xl'], default: Spacing['2xl'] }),
     paddingHorizontal: Spacing['2xl'],
-  },
-  decorativeCard: {
-    position: 'absolute',
-    top: SCREEN_HEIGHT * 0.06,
-    right: Spacing['2xl'],
-    transform: [{ rotate: '12deg' }],
-  },
-  miniCard: {
-    width: 72,
-    height: 96,
-    backgroundColor: Colors.card.background,
-    borderRadius: Radius.lg,
-    padding: Spacing.sm,
-    ...Shadows.md,
-    borderWidth: 1,
-    borderColor: Colors.card.border,
-  },
-  miniCardImage: {
-    height: 36,
-    backgroundColor: Colors.creamDark,
-    borderRadius: Radius.sm,
-    marginBottom: Spacing.sm,
-  },
-  miniCardLine: {
-    height: 6,
-    backgroundColor: Colors.creamDark,
-    borderRadius: 3,
-    marginBottom: Spacing.xs,
-  },
-  miniCardLineShort: {
-    width: '60%',
   },
   welcomeContent: {
     flex: 1,
     justifyContent: 'center',
     paddingBottom: Spacing['4xl'],
   },
-  titleContainer: {
-    marginBottom: Spacing.xl,
+  decorativeCard: {
+    position: 'absolute',
+    top: Spacing['2xl'],
+    right: Spacing['2xl'],
+    transform: [{ rotate: '12deg' }],
+    ...Shadows.md,
   },
-  appTitle: {
-    fontSize: Typography.size['4xl'],
-    fontWeight: '700',
-    color: Colors.text.primary,
-    letterSpacing: Typography.letterSpacing.tight,
-  },
-  titleAccent: {
-    width: 48,
-    height: 4,
-    backgroundColor: Colors.accent.coral,
-    borderRadius: 2,
-    marginTop: Spacing.md,
-  },
-  tagline: {
-    fontSize: Typography.size['2xl'],
-    fontWeight: '500',
-    color: Colors.text.primary,
-    lineHeight: Typography.size['2xl'] * Typography.lineHeight.relaxed,
-    marginBottom: Spacing['2xl'],
-    letterSpacing: Typography.letterSpacing.normal,
-  },
-  descriptionContainer: {
-    backgroundColor: Colors.card.background,
-    padding: Spacing.lg,
+  miniCard: {
+    width: 76,
+    height: 100,
     borderRadius: Radius.lg,
-    marginBottom: Spacing['2xl'],
+    padding: Spacing.sm,
+    backgroundColor: Colors.card.background,
     borderWidth: 1,
     borderColor: Colors.card.border,
+    justifyContent: 'center',
   },
-  description: {
-    fontSize: Typography.size.base,
+  miniCardImage: {
+    height: 40,
+    backgroundColor: Colors.creamDark,
+    borderRadius: Radius.sm,
+    marginBottom: Spacing.sm,
+  },
+  miniCardLine: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.creamDark,
+    marginBottom: Spacing.xs,
+  },
+  miniCardLineShort: {
+    width: '60%',
+  },
+  heroBody: {
+    marginBottom: Spacing['2xl'],
+    gap: Spacing.md,
+  },
+  heroBadge: {
+    alignSelf: 'flex-start',
+    borderRadius: Radius.full,
+    overflow: 'hidden',
+    ...Shadows.sm,
+  },
+  heroBadgeGradient: {
+    paddingHorizontal: Spacing['2xl'],
+    paddingVertical: Spacing.sm,
+  },
+  heroBadgeText: {
+    fontSize: Typography.size.xs,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    letterSpacing: Typography.letterSpacing.wide,
+  },
+  heroTitle: {
+    fontSize: Typography.size['3xl'],
+    fontWeight: '700',
+    color: Colors.text.primary,
+    lineHeight: Typography.size['3xl'] * Typography.lineHeight.relaxed,
+    letterSpacing: Typography.letterSpacing.tight,
+  },
+  heroSubtitle: {
+    fontSize: Typography.size.md,
     color: Colors.text.secondary,
-    lineHeight: Typography.size.base * Typography.lineHeight.relaxed,
+    lineHeight: Typography.size.md * Typography.lineHeight.relaxed,
+  },
+  reviewMessage: {
+    marginTop: Spacing.md,
+    padding: Spacing.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.creamDark,
+  },
+  reviewMessageText: {
+    fontSize: Typography.size.sm,
+    color: Colors.text.secondary,
+    textAlign: 'center',
   },
   startButton: {
-    backgroundColor: Colors.text.primary,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.xl,
     borderRadius: Radius.lg,
+    overflow: 'hidden',
+    position: 'relative',
     ...Shadows.md,
   },
   startButtonPressed: {
     opacity: 0.92,
     transform: [{ scale: 0.98 }],
   },
+  startButtonGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  startButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.sm,
+    position: 'relative',
+    zIndex: 1,
+  },
   buttonIcon: {
     marginRight: Spacing.sm,
   },
   buttonIconText: {
     fontSize: 20,
+    color: Colors.text.inverse,
   },
   startButtonText: {
     fontSize: Typography.size.lg,
@@ -418,6 +538,44 @@ const styles = StyleSheet.create({
     fontSize: Typography.size.sm,
     color: Colors.text.tertiary,
     letterSpacing: Typography.letterSpacing.wide,
+  },
+  reviewGradient: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.9,
+  },
+  reviewPrompt: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing['2xl'],
+    gap: Spacing['md'],
+  },
+  reviewTitle: {
+    fontSize: Typography.size['3xl'],
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  reviewBody: {
+    fontSize: Typography.size.lg,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: Typography.size.lg * Typography.lineHeight.relaxed,
+  },
+  reviewButton: {
+    marginTop: Spacing['2xl'],
+    paddingHorizontal: Spacing['3xl'],
+    paddingVertical: Spacing.lg,
+    borderRadius: Radius['2xl'],
+    backgroundColor: Colors.card.background,
+    ...Shadows.md,
+  },
+  reviewButtonPressed: {
+    opacity: 0.9,
+  },
+  reviewButtonText: {
+    fontSize: Typography.size.md,
+    fontWeight: '600',
+    color: Colors.text.primary,
   },
 
   // How it works
@@ -474,7 +632,7 @@ const styles = StyleSheet.create({
   // Session Screen
   sessionContainer: {
     flex: 1,
-    paddingTop: Spacing['4xl'],
+    paddingTop: Platform.select({ ios: Spacing['3xl'], default: Spacing['2xl'] }),
   },
   backButton: {
     position: 'absolute',

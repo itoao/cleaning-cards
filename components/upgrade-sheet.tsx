@@ -13,7 +13,8 @@ import Animated, {
   SlideInDown,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Colors, Gradients, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -69,6 +70,12 @@ export function UpgradeSheet({ visible, onUpgrade, onClose }: UpgradeSheetProps)
           entering={SlideInDown.duration(500).springify().damping(18)}
           style={styles.sheet}
         >
+          <LinearGradient
+            colors={Gradients.surface}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.sheetGradient}
+          />
           {/* Decorative top accent */}
           <View style={styles.topAccent}>
             <View style={styles.accentLine} />
@@ -120,6 +127,12 @@ export function UpgradeSheet({ visible, onUpgrade, onClose }: UpgradeSheetProps)
               ]}
               onPress={handleUpgrade}
             >
+              <LinearGradient
+                colors={Gradients.button}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.upgradeGradient}
+              />
               <Animated.Text style={styles.upgradeButtonText}>
                 続ける
               </Animated.Text>
@@ -165,6 +178,11 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing['3xl'],
     // Shadow
     ...Shadows.xl,
+    overflow: 'hidden',
+  },
+  sheetGradient: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.8,
   },
   topAccent: {
     alignItems: 'center',
@@ -252,10 +270,13 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   upgradeButton: {
-    backgroundColor: Colors.text.primary,
-    paddingVertical: Spacing.base,
     borderRadius: Radius.lg,
+    overflow: 'hidden',
+    paddingVertical: Spacing.base,
     alignItems: 'center',
+  },
+  upgradeGradient: {
+    ...StyleSheet.absoluteFillObject,
   },
   upgradeButtonPressed: {
     opacity: 0.9,

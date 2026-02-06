@@ -2,11 +2,10 @@
  * Swipeable Card - The core interaction element with reference image
  *
  * A physical-feeling card that responds to touch with realistic
- * spring physics. Now includes a cropped reference image showing
- * the target area for the cleaning instruction.
+ * spring physics.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { StyleSheet, View, Dimensions, Platform, Image } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -17,59 +16,34 @@ import Animated, {
   runOnJS,
   interpolate,
   Extrapolation,
-  FadeIn,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Typography, Spacing, Radius, Shadows, Animation } from '@/constants/theme';
+import { Colors, Gradients, Typography, Spacing, Radius, Shadows, Animation } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - Spacing['2xl'] * 2;
 const CARD_HEIGHT = 480;
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25;
 
-// 3x3 グリッド位置の定義
-type GridPosition = 'A1' | 'A2' | 'A3' | 'B1' | 'B2' | 'B3' | 'C1' | 'C2' | 'C3';
-
-interface CropArea {
-  gridPosition: GridPosition;
-  // または正規化座標 (0-1)
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-}
-
 interface SwipeableCardProps {
   instruction: string;
-  areaHint?: string;
   roomImage: string;
-  cropArea?: CropArea;
   onComplete: () => void;
   cardNumber: number;
   totalCards: number;
-}
-
-// グリッド位置から正規化座標を取得
-function getGridCoordinates(position: GridPosition): { x: number; y: number; width: number; height: number } {
-  const col = position.charCodeAt(0) - 65; // A=0, B=1, C=2
-  const row = parseInt(position[1]) - 1; // 1=0, 2=1, 3=2
-
-  return {
-    x: col / 3,
-    y: row / 3,
-    width: 1 / 3,
-    height: 1 / 3,
-  };
+  remainingLabel: string;
+  progress: number;
 }
 
 export function SwipeableCard({
   instruction,
-  areaHint,
   roomImage,
-  cropArea,
   onComplete,
   cardNumber,
   totalCards,
+  remainingLabel,
+  progress,
 }: SwipeableCardProps) {
   // Gesture state
   const translateX = useSharedValue(0);
@@ -77,6 +51,11 @@ export function SwipeableCard({
   const scale = useSharedValue(1);
   const rotateZ = useSharedValue(0);
   const completionProgress = useSharedValue(0);
+  const progressValue = useSharedValue(0);
+
+  useEffect(() => {
+    progressValue.value = withTiming(progress, { duration: 500 });
+  }, [progress, progressValue]);
 
   // Haptic feedback functions
   const triggerLightHaptic = useCallback(() => {
@@ -204,18 +183,32 @@ export function SwipeableCard({
     };
   });
 
-  // クロップ座標を計算
-  const cropCoords = cropArea?.gridPosition
-    ? getGridCoordinates(cropArea.gridPosition)
-    : cropArea?.x !== undefined
-      ? { x: cropArea.x, y: cropArea.y!, width: cropArea.width!, height: cropArea.height! }
-      : null;
+  const haloStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      completionProgress.value,
+      [0, 0.7, 1],
+      [0, 1, 1],
+      Extrapolation.CLAMP
+    ),
+  }));
+
+  const progressFillStyle = useAnimatedStyle(() => ({
+    width: `${Math.max(0, Math.min(progressValue.value, 1)) * 100}%`,
+  }));
 
   return (
     <GestureDetector gesture={panGesture}>
       <Animated.View style={[styles.card, cardStyle]}>
+        <LinearGradient
+          colors={Gradients.surface}
+          start={{ x: 0.15, y: 0 }}
+          end={{ x: 0.8, y: 1 }}
+          style={styles.cardGradient}
+        />
+        <View style={styles.innerStroke} pointerEvents="none" />
         {/* Completion glow overlay */}
         <Animated.View style={[styles.glow, glowStyle]} />
+        <Animated.View style={[styles.halo, haloStyle]} />
 
         {/* Reference image section */}
         <View style={styles.imageSection}>
@@ -225,82 +218,7 @@ export function SwipeableCard({
               style={styles.roomImage}
               resizeMode="cover"
             />
-
-            {/* グリッドオーバーレイ */}
-            <View style={styles.gridOverlay}>
-              {/* 縦線 */}
-              <View style={[styles.gridLine, styles.gridLineV, { left: '33.33%' }]} />
-              <View style={[styles.gridLine, styles.gridLineV, { left: '66.66%' }]} />
-              {/* 横線 */}
-              <View style={[styles.gridLine, styles.gridLineH, { top: '33.33%' }]} />
-              <View style={[styles.gridLine, styles.gridLineH, { top: '66.66%' }]} />
-            </View>
-
-            {/* ハイライト領域 */}
-            {cropCoords && (
-              <Animated.View
-                entering={FadeIn.delay(300).duration(400)}
-                style={[
-                  styles.highlightArea,
-                  {
-                    left: `${cropCoords.x * 100}%`,
-                    top: `${cropCoords.y * 100}%`,
-                    width: `${cropCoords.width * 100}%`,
-                    height: `${cropCoords.height * 100}%`,
-                  },
-                ]}
-              >
-                {/* パルスアニメーション用のボーダー */}
-                <View style={styles.highlightBorder} />
-                {/* ポインター */}
-                <View style={styles.pointer}>
-                  <View style={styles.pointerDot} />
-                </View>
-              </Animated.View>
-            )}
-
-            {/* ダークオーバーレイ（ハイライト以外） */}
-            {cropCoords && (
-              <View style={styles.darkOverlay}>
-                {/* 上 */}
-                <View style={[styles.darkArea, {
-                  top: 0, left: 0, right: 0,
-                  height: `${cropCoords.y * 100}%`
-                }]} />
-                {/* 下 */}
-                <View style={[styles.darkArea, {
-                  bottom: 0, left: 0, right: 0,
-                  height: `${(1 - cropCoords.y - cropCoords.height) * 100}%`
-                }]} />
-                {/* 左 */}
-                <View style={[styles.darkArea, {
-                  top: `${cropCoords.y * 100}%`,
-                  left: 0,
-                  width: `${cropCoords.x * 100}%`,
-                  height: `${cropCoords.height * 100}%`
-                }]} />
-                {/* 右 */}
-                <View style={[styles.darkArea, {
-                  top: `${cropCoords.y * 100}%`,
-                  right: 0,
-                  width: `${(1 - cropCoords.x - cropCoords.width) * 100}%`,
-                  height: `${cropCoords.height * 100}%`
-                }]} />
-              </View>
-            )}
           </View>
-
-          {/* Area label */}
-          {areaHint && (
-            <View style={styles.areaLabel}>
-              <Animated.Text style={styles.areaLabelText}>{areaHint}</Animated.Text>
-              {cropArea?.gridPosition && (
-                <View style={styles.gridBadge}>
-                  <Animated.Text style={styles.gridBadgeText}>{cropArea.gridPosition}</Animated.Text>
-                </View>
-              )}
-            </View>
-          )}
         </View>
 
         {/* Completion checkmark */}
@@ -309,6 +227,28 @@ export function SwipeableCard({
             <Animated.Text style={styles.checkmark}>✓</Animated.Text>
           </View>
         </Animated.View>
+
+        {/* Progress */}
+        <View style={styles.progressSection}>
+          <View style={styles.progressHeader}>
+            <View style={styles.remainingChip}>
+              <Animated.Text style={styles.remainingText}>{remainingLabel}</Animated.Text>
+            </View>
+            <Animated.Text style={styles.progressCount}>
+              {cardNumber + 1}/{totalCards}
+            </Animated.Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <Animated.View style={[styles.progressFill, progressFillStyle]}>
+              <LinearGradient
+                colors={[Colors.accent.coralDark, Colors.accent.coralLight]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.progressFillGradient}
+              />
+            </Animated.View>
+          </View>
+        </View>
 
         {/* Instruction section */}
         <View style={styles.instructionSection}>
@@ -345,15 +285,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.card.border,
     overflow: 'hidden',
-    shadowColor: Colors.shadowDark,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 8,
+    shadowColor: Colors.atmosphere.lens,
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.3,
+    shadowRadius: 34,
+    elevation: 12,
+  },
+  cardGradient: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: Radius['2xl'],
+  },
+  innerStroke: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: Radius['2xl'],
+    borderWidth: 0.5,
+    borderColor: Colors.card.innerStroke,
+    opacity: 0.9,
   },
   glow: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: Radius['2xl'],
+  },
+  halo: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: Radius['2xl'],
+    backgroundColor: Colors.atmosphere.lens,
+    shadowColor: Colors.atmosphere.lens,
+    shadowRadius: 60,
+    shadowOpacity: 0.8,
   },
   imageSection: {
     height: 200,
@@ -368,85 +327,6 @@ const styles = StyleSheet.create({
   },
   roomImage: {
     ...StyleSheet.absoluteFillObject,
-  },
-  gridOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  gridLine: {
-    position: 'absolute',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  gridLineV: {
-    width: 1,
-    top: 0,
-    bottom: 0,
-  },
-  gridLineH: {
-    height: 1,
-    left: 0,
-    right: 0,
-  },
-  darkOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  darkArea: {
-    position: 'absolute',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  highlightArea: {
-    position: 'absolute',
-    zIndex: 10,
-  },
-  highlightBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 2,
-    borderColor: Colors.accent.coral,
-    borderRadius: 4,
-  },
-  pointer: {
-    position: 'absolute',
-    top: -8,
-    right: -8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Colors.accent.coral,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...Shadows.sm,
-  },
-  pointerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FFF',
-  },
-  areaLabel: {
-    position: 'absolute',
-    bottom: Spacing.sm,
-    left: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  areaLabelText: {
-    fontSize: Typography.size.sm,
-    color: '#FFF',
-    fontWeight: '600',
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  gridBadge: {
-    backgroundColor: Colors.accent.coral,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: Radius.sm,
-  },
-  gridBadgeText: {
-    fontSize: Typography.size.xs,
-    color: '#FFF',
-    fontWeight: '700',
   },
   completionIndicator: {
     position: 'absolute',
@@ -481,6 +361,47 @@ const styles = StyleSheet.create({
     color: Colors.text.primary,
     textAlign: 'center',
     lineHeight: Typography.size.xl * Typography.lineHeight.relaxed,
+  },
+  progressSection: {
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  remainingChip: {
+    backgroundColor: Colors.creamDark,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radius.full,
+  },
+  remainingText: {
+    fontSize: Typography.size.xs,
+    color: Colors.text.secondary,
+    letterSpacing: Typography.letterSpacing.wide,
+  },
+  progressCount: {
+    fontSize: Typography.size.xs,
+    color: Colors.text.tertiary,
+    letterSpacing: Typography.letterSpacing.wider,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: Colors.creamDark,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  progressFillGradient: {
+    flex: 1,
+    borderRadius: 999,
   },
   footer: {
     paddingHorizontal: Spacing.xl,

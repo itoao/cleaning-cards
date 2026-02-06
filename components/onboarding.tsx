@@ -21,7 +21,8 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { Colors, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Colors, Gradients, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -102,12 +103,12 @@ export function Onboarding({ onComplete }: OnboardingProps) {
 
   return (
     <View style={styles.container}>
-      {/* Background decoration */}
-      <View style={styles.backgroundDecor}>
-        <View style={[styles.decorCircle, styles.decorCircle1]} />
-        <View style={[styles.decorCircle, styles.decorCircle2]} />
-        <View style={[styles.decorCircle, styles.decorCircle3]} />
-      </View>
+      <LinearGradient
+        colors={Gradients.atmosphere}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.gradientLayer}
+      />
 
       {/* Skip button */}
       {!isLastStep && (
@@ -172,13 +173,21 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           ]}
           onPress={handleNext}
         >
-          <Animated.Text style={styles.actionButtonText}>
-            {isLastStep ? 'はじめる' : '次へ'}
-          </Animated.Text>
-          <View style={styles.buttonArrow}>
-            <Animated.Text style={styles.buttonArrowText}>
-              {isLastStep ? '✨' : '→'}
+          <LinearGradient
+            colors={Gradients.button}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.actionGradient}
+          />
+          <View style={styles.actionContent}>
+            <Animated.Text style={styles.actionButtonText}>
+              {isLastStep ? 'はじめる' : '次へ'}
             </Animated.Text>
+            <View style={styles.buttonArrow}>
+              <Animated.Text style={styles.buttonArrowText}>
+                {isLastStep ? '✨' : '→'}
+              </Animated.Text>
+            </View>
           </View>
         </Pressable>
       </Animated.View>
@@ -190,6 +199,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.cream,
+  },
+  gradientLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
   backgroundDecor: {
     ...StyleSheet.absoluteFillObject,
@@ -308,13 +320,19 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing['4xl'],
   },
   actionButton: {
-    backgroundColor: Colors.text.primary,
+    borderRadius: Radius.full,
+    overflow: 'hidden',
+    ...Shadows.md,
+  },
+  actionGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  actionContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: Spacing.lg,
-    borderRadius: Radius.lg,
-    ...Shadows.md,
+    paddingHorizontal: Spacing['3xl'],
   },
   actionButtonPressed: {
     opacity: 0.92,

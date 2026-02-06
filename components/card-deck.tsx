@@ -3,11 +3,11 @@
  *
  * Shows the current card with a subtle preview of the next card behind it.
  * Handles transitions between cards and the completion state.
- * Now supports room images and crop areas for reference.
+ * Shows room images for reference.
  */
 
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, Dimensions, Platform, Pressable } from 'react-native';
+import { StyleSheet, View, Dimensions, Platform, Pressable, ScrollView } from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
@@ -19,44 +19,39 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SwipeableCard } from './swipeable-card';
 import { PaperConfetti } from './paper-confetti';
 import { UpgradeSheet } from './upgrade-sheet';
-import { Colors, Typography, Spacing, Radius, Animation } from '@/constants/theme';
+import { Colors, Gradients, Typography, Spacing, Radius, Animation } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const FREE_CARD_LIMIT = 3;
 
-type GridPosition = 'A1' | 'A2' | 'A3' | 'B1' | 'B2' | 'B3' | 'C1' | 'C2' | 'C3';
-
 interface CleaningCard {
   instruction: string;
-  areaHint: string;
-  gridPosition: GridPosition;
 }
 
-// Mock cleaning instructions (would come from AI in production)
-const MOCK_CARDS: CleaningCard[] = [
-  { instruction: '床に落ちている服を1枚だけ拾ってください', areaHint: '部屋の中央', gridPosition: 'B2' },
-  { instruction: 'テーブルの上の紙だけ集めてください', areaHint: 'テーブル', gridPosition: 'A1' },
-  { instruction: '見えているゴミを1つ捨ててください', areaHint: '床', gridPosition: 'C2' },
-  { instruction: 'ソファの上のクッションを整えてください', areaHint: 'ソファ', gridPosition: 'B1' },
-  { instruction: '窓際に置いてあるコップを台所へ', areaHint: '窓際', gridPosition: 'A3' },
-];
+const DEFAULT_EMPTY_MESSAGE = 'カードを生成できませんでした';
 
 interface CardDeckProps {
   roomImage: string;
+  cards: Array<{ instruction: string }>;
   onSessionComplete?: () => void;
   onBack?: () => void;
 }
 
-export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps) {
+export function CardDeck({ roomImage, cards, onSessionComplete, onBack }: CardDeckProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
   const [isPremium, setIsPremium] = useState(false);
+  const [completedCards, setCompletedCards] = useState<string[]>([]);
+  const deckCards: CleaningCard[] = cards.map((card) => ({
+    instruction: card.instruction,
+  }));
 
   // Animation values
   const nextCardScale = useSharedValue(0.92);
@@ -66,11 +61,12 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
   const handleCardComplete = useCallback(() => {
     // Show celebration
     setShowConfetti(true);
+    setCompletedCards((prev) => [...prev, deckCards[currentIndex]?.instruction ?? '']);
 
     const nextIndex = currentIndex + 1;
 
     // Check free limit
-    if (!isPremium && nextIndex === FREE_CARD_LIMIT) {
+    if (!isPremium && deckCards.length > FREE_CARD_LIMIT && nextIndex === FREE_CARD_LIMIT) {
       setTimeout(() => {
         setShowUpgrade(true);
       }, 1000);
@@ -79,7 +75,7 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
 
     // Advance to next card
     setTimeout(() => {
-      if (nextIndex < MOCK_CARDS.length) {
+      if (nextIndex < deckCards.length) {
         // Animate next card forward
         nextCardScale.value = withSequence(
           withTiming(0.92, { duration: 0 }),
@@ -104,7 +100,7 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
         onSessionComplete?.();
       }
     }, 200);
-  }, [currentIndex, isPremium, onSessionComplete]);
+  }, [currentIndex, deckCards, isPremium, onSessionComplete]);
 
   const handleConfettiComplete = useCallback(() => {
     setShowConfetti(false);
@@ -131,6 +127,7 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
     setCurrentIndex(0);
     setIsComplete(false);
     setIsPremium(false);
+    setCompletedCards([]);
   }, []);
 
   // Next card preview style
@@ -142,6 +139,38 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
     opacity: nextCardOpacity.value,
   }));
 
+  if (deckCards.length === 0) {
+    return (
+      <View style={styles.container}>
+        <Animated.View entering={FadeIn.duration(400)} style={styles.emptyState}>
+          <Animated.Text style={styles.emptyTitle}>{DEFAULT_EMPTY_MESSAGE}</Animated.Text>
+          <Animated.Text style={styles.emptyBody}>
+            撮影をやり直すか、別の角度でもう一度撮影してください。
+          </Animated.Text>
+          {onBack && (
+            <Pressable style={styles.backToHomeButton} onPress={onBack}>
+              <Animated.Text style={styles.backToHomeText}>ホームに戻る</Animated.Text>
+            </Pressable>
+          )}
+        </Animated.View>
+      </View>
+    );
+  }
+
+  const totalCards = isPremium
+    ? deckCards.length
+    : Math.min(deckCards.length, FREE_CARD_LIMIT);
+  const remainingCards = Math.max(totalCards - currentIndex, 1);
+  const progress = Math.min((currentIndex + 1) / totalCards, 1);
+
+  const getRemainingLabel = (remaining: number) => {
+    const minPerCard = 1.2;
+    const maxPerCard = 2.4;
+    const minMinutes = Math.max(1, Math.round(remaining * minPerCard));
+    const maxMinutes = Math.max(minMinutes + 1, Math.round(remaining * maxPerCard));
+    return `のこり ${minMinutes}〜${maxMinutes}分`;
+  };
+
   // Completion screen
   if (isComplete) {
     return (
@@ -150,7 +179,6 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
           entering={FadeIn.duration(600)}
           style={styles.completeContainer}
         >
-          {/* Celebration emoji with subtle animation */}
           <Animated.View
             entering={SlideInDown.delay(200).duration(500).springify()}
             style={styles.celebrationEmoji}
@@ -158,30 +186,45 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
             <Animated.Text style={styles.emojiText}>✨</Animated.Text>
           </Animated.View>
 
-          {/* Completion message */}
           <Animated.View entering={FadeIn.delay(400).duration(400)}>
             <Animated.Text style={styles.completeTitle}>
-              お疲れさまでした
+              おつかれさま
             </Animated.Text>
             <Animated.Text style={styles.completeSubtitle}>
-              {isPremium ? '今日の片付け、完了です' : '今日の無料分は終了です'}
+              {isPremium ? 'きょうの片付け完了' : 'きょうの無料分はここまで'}
             </Animated.Text>
           </Animated.View>
 
-          {/* Stats */}
           <Animated.View
             entering={FadeIn.delay(600).duration(400)}
             style={styles.statsContainer}
           >
             <View style={styles.statItem}>
               <Animated.Text style={styles.statNumber}>
-                {isPremium ? MOCK_CARDS.length : FREE_CARD_LIMIT}
+                {completedCards.length}
               </Animated.Text>
               <Animated.Text style={styles.statLabel}>完了</Animated.Text>
             </View>
           </Animated.View>
 
-          {/* Buttons */}
+          <Animated.View entering={FadeIn.delay(700).duration(400)} style={styles.resultCard}>
+            <Animated.Text style={styles.resultTitle}>完了したこと</Animated.Text>
+            <ScrollView
+              style={styles.resultList}
+              contentContainerStyle={styles.resultListContent}
+              showsVerticalScrollIndicator={false}
+            >
+            {completedCards.map((card, index) => (
+                <View key={`${card}-${index}`} style={styles.resultItem}>
+                  <View style={styles.resultBullet} />
+                  <View style={styles.resultTextGroup}>
+                    <Animated.Text style={styles.resultText}>{card}</Animated.Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </Animated.View>
+
           <Animated.View entering={FadeIn.delay(800).duration(400)} style={styles.completeActions}>
             <Pressable
               style={({ pressed }) => [
@@ -195,10 +238,10 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
               </Animated.Text>
             </Pressable>
 
-            {onBack && (
-              <Pressable
-                style={styles.backToHomeButton}
-                onPress={onBack}
+              {onBack && (
+                <Pressable
+                  style={styles.backToHomeButton}
+                  onPress={onBack}
               >
                 <Animated.Text style={styles.backToHomeText}>
                   ホームに戻る
@@ -218,11 +261,19 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
     );
   }
 
-  const currentCard = MOCK_CARDS[currentIndex];
-  const nextCard = MOCK_CARDS[currentIndex + 1];
+  const currentCard = deckCards[currentIndex];
+  const nextCard = deckCards[currentIndex + 1];
 
   return (
     <View style={styles.container}>
+      <LinearGradient
+        colors={Gradients.atmosphere}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.atmosphereGradient}
+      />
+      <View style={styles.atmosphereVignette} />
+      <View style={styles.atmosphereGlow} />
       {/* Premium badge */}
       {isPremium && (
         <Animated.View
@@ -238,11 +289,16 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
         {/* Next card preview (behind current) */}
         {nextCard && (
           <Animated.View style={[styles.nextCardPreview, nextCardStyle]}>
-            <View style={styles.previewCard}>
+            <LinearGradient
+              colors={Gradients.surface}
+              start={{ x: 0.05, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.previewCard}
+            >
               <Animated.Text style={styles.previewText} numberOfLines={2}>
                 {nextCard.instruction}
               </Animated.Text>
-            </View>
+            </LinearGradient>
           </Animated.View>
         )}
 
@@ -255,12 +311,12 @@ export function CardDeck({ roomImage, onSessionComplete, onBack }: CardDeckProps
         >
           <SwipeableCard
             instruction={currentCard.instruction}
-            areaHint={currentCard.areaHint}
             roomImage={roomImage}
-            cropArea={{ gridPosition: currentCard.gridPosition }}
             onComplete={handleCardComplete}
             cardNumber={currentIndex}
-            totalCards={isPremium ? MOCK_CARDS.length : FREE_CARD_LIMIT}
+            totalCards={totalCards}
+            remainingLabel={getRemainingLabel(remainingCards)}
+            progress={progress}
           />
         </Animated.View>
       </View>
@@ -289,6 +345,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  atmosphereGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  atmosphereVignette: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: Colors.atmosphere.vignette,
+    opacity: 0.5,
+  },
+  atmosphereGlow: {
+    position: 'absolute',
+    width: SCREEN_WIDTH * 1.4,
+    height: SCREEN_HEIGHT * 0.5,
+    backgroundColor: Colors.atmosphere.halo,
+    opacity: 0.32,
+    borderRadius: SCREEN_HEIGHT,
+    top: SCREEN_HEIGHT * 0.05,
+    left: -SCREEN_WIDTH * 0.3,
+  },
   premiumBadge: {
     position: 'absolute',
     top: Spacing.xl,
@@ -309,6 +383,7 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: Spacing['2xl'],
   },
   currentCard: {
     zIndex: 2,
@@ -320,13 +395,17 @@ const styles = StyleSheet.create({
   previewCard: {
     width: SCREEN_WIDTH - Spacing['2xl'] * 2,
     height: 480,
-    backgroundColor: Colors.creamDark,
     borderRadius: Radius['2xl'],
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: Spacing['3xl'],
-    borderWidth: 1,
-    borderColor: Colors.card.border,
+    borderWidth: 0.5,
+    borderColor: Colors.card.innerStroke,
+    shadowColor: Colors.atmosphere.lens,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 5,
   },
   previewText: {
     fontSize: Typography.size.lg,
@@ -381,6 +460,49 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     marginTop: Spacing.xs,
   },
+  resultCard: {
+    width: '100%',
+    backgroundColor: Colors.card.background,
+    borderRadius: Radius.xl,
+    padding: Spacing.xl,
+    borderWidth: 1,
+    borderColor: Colors.card.border,
+    marginBottom: Spacing['2xl'],
+    maxHeight: SCREEN_HEIGHT * 0.35,
+  },
+  resultTitle: {
+    fontSize: Typography.size.sm,
+    color: Colors.text.secondary,
+    marginBottom: Spacing.base,
+    letterSpacing: Typography.letterSpacing.wide,
+  },
+  resultList: {
+    flexGrow: 0,
+  },
+  resultListContent: {
+    gap: Spacing.base,
+  },
+  resultItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+  },
+  resultBullet: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: Colors.accent.mint,
+    marginTop: 6,
+  },
+  resultTextGroup: {
+    flex: 1,
+    gap: Spacing.xs,
+  },
+  resultText: {
+    fontSize: Typography.size.base,
+    color: Colors.text.primary,
+    lineHeight: Typography.size.base * Typography.lineHeight.relaxed,
+  },
   completeActions: {
     gap: Spacing.md,
     alignItems: 'center',
@@ -407,5 +529,22 @@ const styles = StyleSheet.create({
   backToHomeText: {
     fontSize: Typography.size.base,
     color: Colors.text.secondary,
+  },
+  emptyState: {
+    paddingHorizontal: Spacing['2xl'],
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: Typography.size.xl,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: Spacing.md,
+  },
+  emptyBody: {
+    fontSize: Typography.size.base,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: Typography.size.base * Typography.lineHeight.relaxed,
+    marginBottom: Spacing.xl,
   },
 });

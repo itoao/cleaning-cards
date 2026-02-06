@@ -10,6 +10,13 @@
 
 import { Platform } from 'react-native';
 
+const SHARED_GRADIENTS = {
+  atmosphere: ['rgba(118, 135, 255, 0.35)', 'rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0)'],
+  surface: ['#F7F9FF', '#EDE9FF', '#E5F4F7'],
+  badge: ['rgba(166, 197, 255, 0.9)', 'rgba(255, 255, 255, 0.95)'],
+  button: ['#FFAB96', '#FFC6E1', '#E5D9FF'],
+};
+
 // Color Palette - Warm, calming earth tones
 export const Colors = {
   // Primary cream background - like aged paper
@@ -39,8 +46,17 @@ export const Colors = {
 
   // Card colors
   card: {
-    background: '#FFFFFF',
-    border: 'rgba(139, 119, 101, 0.08)',
+    background: '#F7F9FF',
+    border: 'rgba(122, 111, 143, 0.2)',
+    gradient: SHARED_GRADIENTS.surface,
+    glow: 'rgba(255, 255, 255, 0.45)',
+    innerStroke: 'rgba(255, 255, 255, 0.95)',
+  },
+
+  atmosphere: {
+    halo: 'rgba(255, 255, 255, 0.8)',
+    vignette: 'rgba(10, 18, 34, 0.35)',
+    lens: 'rgba(114, 132, 255, 0.1)',
   },
 
   // Confetti colors - soft, paper-like
@@ -60,9 +76,20 @@ export const Colors = {
   overlayLight: 'rgba(61, 54, 50, 0.6)',
 };
 
+export const Gradients = SHARED_GRADIENTS;
+
 // Typography - Using system fonts with specific weights for Japanese support
 export const Typography = {
-  // Font families optimized for Japanese readability
+  displayFont: Platform.select({
+    ios: 'Hiragino Mincho ProN',
+    android: 'serif',
+    default: 'serif',
+  }),
+  bodyFont: Platform.select({
+    ios: 'Hiragino Sans',
+    android: 'sans-serif',
+    default: 'System',
+  }),
   fontFamily: Platform.select({
     ios: {
       regular: 'Hiragino Sans',
