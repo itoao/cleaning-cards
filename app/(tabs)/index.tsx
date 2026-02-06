@@ -39,8 +39,10 @@ import Animated, {
 
 import { CameraGuide } from '@/components/camera-guide';
 import { CardDeck } from '@/components/card-deck';
+import { GoogleAuthPrompt } from '@/components/google-auth-prompt';
 import { Onboarding } from '@/components/onboarding';
 import { Colors, Gradients, Radius, Shadows, Spacing, Typography } from '@/constants/theme';
+import { useGoogleAuth } from '@/hooks/use-google-auth';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -56,6 +58,26 @@ export default function HomeScreen() {
   const [cards, setCards] = useState<{ instruction: string }[]>([]);
   const [reviewMode, setReviewMode] = useState(false);
   const [finalCheckMessage, setFinalCheckMessage] = useState<string | null>(null);
+  const { user, busy, error, signIn } = useGoogleAuth();
+  const [authPromptVisible, setAuthPromptVisible] = useState(false);
+  const isSignedIn = Boolean(user);
+
+  const handleRequireLogin = useCallback(() => {
+    setAuthPromptVisible(true);
+  }, []);
+
+  const handleAuthPromptClose = useCallback(() => {
+    setAuthPromptVisible(false);
+  }, []);
+
+  const handleSignInPress = useCallback(async () => {
+    try {
+      await signIn();
+      setAuthPromptVisible(false);
+    } catch {
+      // Error text is handled inside the hook
+    }
+  }, [signIn]);
 
   // Floating animation for decorative elements
   const floatAnim = useSharedValue(0);
@@ -270,21 +292,21 @@ export default function HomeScreen() {
 
             {/* Start button */}
             <Animated.View entering={FadeIn.delay(900).duration(500)}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.startButton,
-                pressed && styles.startButtonPressed,
-              ]}
-              onPress={handleStartCamera}
-            >
-              <LinearGradient
-                colors={Gradients.button}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.startButtonGradient}
-                pointerEvents="none"
-              />
-              <View style={styles.startButtonContent}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.startButton,
+                  pressed && styles.startButtonPressed,
+                ]}
+                onPress={handleStartCamera}
+              >
+                <LinearGradient
+                  colors={Gradients.button}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.startButtonGradient}
+                  pointerEvents="none"
+                />
+                <View style={styles.startButtonContent}>
                   <View style={styles.buttonIcon}>
                     <Animated.Text style={styles.buttonIconText}>📷️</Animated.Text>
                   </View>
@@ -294,6 +316,26 @@ export default function HomeScreen() {
                   </View>
                 </View>
               </Pressable>
+            </Animated.View>
+
+            {/* Account button */}
+            <Animated.View entering={FadeIn.delay(1050).duration(400)} style={styles.accountBlock}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.accountButton,
+                  pressed && styles.accountButtonPressed,
+                ]}
+                onPress={handleRequireLogin}
+              >
+                <Animated.Text style={styles.accountButtonText}>
+                  アカウント登録済み
+                </Animated.Text>
+              </Pressable>
+              <Animated.Text style={styles.accountSubtitle}>
+                {isSignedIn
+                  ? `${user?.name ?? 'Google アカウント'} でログイン中`
+                  : 'プレミアムの継続にはログインが必要です'}
+              </Animated.Text>
             </Animated.View>
 
             {/* Free trial note */}
@@ -335,6 +377,8 @@ export default function HomeScreen() {
             cards={cards}
             onSessionComplete={handleSessionComplete}
             onBack={handleBackToWelcome}
+            isSignedIn={isSignedIn}
+            onRequireAuth={handleRequireLogin}
           />
 
           {/* Back button */}
@@ -346,6 +390,13 @@ export default function HomeScreen() {
           </Pressable>
         </Animated.View>
       )}
+      <GoogleAuthPrompt
+        visible={authPromptVisible}
+        busy={busy}
+        error={error}
+        onSignIn={handleSignInPress}
+        onClose={handleAuthPromptClose}
+      />
     </GestureHandlerRootView>
   );
 }
@@ -537,6 +588,33 @@ const styles = StyleSheet.create({
   trialNoteText: {
     fontSize: Typography.size.sm,
     color: Colors.text.tertiary,
+    letterSpacing: Typography.letterSpacing.wide,
+  },
+  accountBlock: {
+    marginTop: Spacing.lg,
+    alignItems: 'center',
+  },
+  accountButton: {
+    borderRadius: Radius['2xl'],
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing['2xl'],
+    backgroundColor: Colors.card.background,
+    borderWidth: 1,
+    borderColor: Colors.creamDark,
+    ...Shadows.sm,
+  },
+  accountButtonPressed: {
+    opacity: 0.86,
+  },
+  accountButtonText: {
+    fontSize: Typography.size.md,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  accountSubtitle: {
+    marginTop: Spacing.sm,
+    fontSize: Typography.size.xs,
+    color: Colors.text.secondary,
     letterSpacing: Typography.letterSpacing.wide,
   },
   reviewGradient: {

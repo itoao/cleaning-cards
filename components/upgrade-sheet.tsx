@@ -22,6 +22,8 @@ interface UpgradeSheetProps {
   visible: boolean;
   onUpgrade: () => void;
   onClose: () => void;
+  authHint?: string;
+  authRequired?: boolean;
 }
 
 interface BenefitItemProps {
@@ -43,7 +45,7 @@ function BenefitItem({ text, delay }: BenefitItemProps) {
   );
 }
 
-export function UpgradeSheet({ visible, onUpgrade, onClose }: UpgradeSheetProps) {
+export function UpgradeSheet({ visible, onUpgrade, onClose, authHint, authRequired }: UpgradeSheetProps) {
   const handleUpgrade = () => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -113,6 +115,11 @@ export function UpgradeSheet({ visible, onUpgrade, onClose }: UpgradeSheetProps)
             <Animated.Text style={styles.note}>
               いつでもキャンセルできます
             </Animated.Text>
+            {authRequired && (
+              <Animated.Text entering={FadeIn.delay(480)} style={styles.authHint}>
+                {authHint ?? 'Googleログインしてから続けてください'}
+              </Animated.Text>
+            )}
           </Animated.View>
 
           {/* Actions */}
@@ -265,6 +272,12 @@ const styles = StyleSheet.create({
     color: Colors.text.tertiary,
     textAlign: 'center',
     marginBottom: Spacing.xl,
+  },
+  authHint: {
+    fontSize: Typography.size.sm,
+    color: Colors.accent.coralDark,
+    textAlign: 'center',
+    marginTop: Spacing.xs,
   },
   actions: {
     gap: Spacing.md,

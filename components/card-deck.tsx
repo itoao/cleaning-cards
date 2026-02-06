@@ -6,24 +6,24 @@
  * Shows room images for reference.
  */
 
-import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, Dimensions, Platform, Pressable, ScrollView } from 'react-native';
+import { Animation, Colors, Gradients, Radius, Spacing, Typography } from '@/constants/theme';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import React, { useCallback, useState } from 'react';
+import { Dimensions, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
   SlideInDown,
-  useSharedValue,
   useAnimatedStyle,
-  withSpring,
+  useSharedValue,
   withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
-import { SwipeableCard } from './swipeable-card';
 import { PaperConfetti } from './paper-confetti';
+import { SwipeableCard } from './swipeable-card';
 import { UpgradeSheet } from './upgrade-sheet';
-import { Colors, Gradients, Typography, Spacing, Radius, Animation } from '@/constants/theme';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -37,12 +37,21 @@ const DEFAULT_EMPTY_MESSAGE = 'カードを生成できませんでした';
 
 interface CardDeckProps {
   roomImage: string;
-  cards: Array<{ instruction: string }>;
+  cards: { instruction: string }[];
   onSessionComplete?: () => void;
   onBack?: () => void;
+  isSignedIn: boolean;
+  onRequireAuth: () => void;
 }
 
-export function CardDeck({ roomImage, cards, onSessionComplete, onBack }: CardDeckProps) {
+export function CardDeck({
+  roomImage,
+  cards,
+  onSessionComplete,
+  onBack,
+  isSignedIn,
+  onRequireAuth,
+}: CardDeckProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
@@ -107,6 +116,11 @@ export function CardDeck({ roomImage, cards, onSessionComplete, onBack }: CardDe
   }, []);
 
   const handleUpgrade = useCallback(() => {
+    if (!isSignedIn) {
+      onRequireAuth();
+      return;
+    }
+
     setIsPremium(true);
     setShowUpgrade(false);
     if (Platform.OS !== 'web') {
@@ -116,7 +130,7 @@ export function CardDeck({ roomImage, cards, onSessionComplete, onBack }: CardDe
     setTimeout(() => {
       setCurrentIndex((prev) => prev + 1);
     }, 300);
-  }, []);
+  }, [isSignedIn, onRequireAuth]);
 
   const handleUpgradeClose = useCallback(() => {
     setShowUpgrade(false);
@@ -334,6 +348,7 @@ export function CardDeck({ roomImage, cards, onSessionComplete, onBack }: CardDe
         visible={showUpgrade}
         onUpgrade={handleUpgrade}
         onClose={handleUpgradeClose}
+        authRequired={!isSignedIn}
       />
     </View>
   );
