@@ -1,0 +1,12 @@
+name = "cleaning-cards"
+main = "worker/index.ts"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+# 環境変数（シークレットは `wrangler secret put` で設定）
+# OPENROUTER_API_KEY は secret として設定してください
+
+[vars]
+OPENROUTER_MODEL = "google/gemini-2.0-flash-001"
+OPENROUTER_REFERRER = "https://cleaning-cards.workers.dev"
+OPENROUTER_TITLE = "cleaning-cards"

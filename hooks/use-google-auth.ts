@@ -9,7 +9,7 @@ type AuthUser = {
   photo: string | null;
 };
 
-const isWeb = Platform.OS === 'web';
+// const isWeb = Platform.OS === 'web';
 
 const mapToAuthUser = (payload: User | null): AuthUser | null => {
   if (!payload) return null;
@@ -39,12 +39,12 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 const googleConfig = {
-  webClientId:
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? process.env.EXPO_GOOGLE_WEB_CLIENT_ID ?? '',
+  // webClientId:
+  //   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? process.env.EXPO_GOOGLE_WEB_CLIENT_ID ?? '',
   iosClientId:
     process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? process.env.EXPO_GOOGLE_IOS_CLIENT_ID ?? '',
-  androidClientId:
-    process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? process.env.EXPO_GOOGLE_ANDROID_CLIENT_ID ?? '',
+  // androidClientId:
+  //   process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? process.env.EXPO_GOOGLE_ANDROID_CLIENT_ID ?? '',
 };
 
 export function useGoogleAuth() {
@@ -54,17 +54,17 @@ export function useGoogleAuth() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isWeb) {
-      setInitializing(false);
-      return;
-    }
+    // if (isWeb) {
+    //   setInitializing(false);
+    //   return;
+    // }
 
     GoogleSignin.configure({
       scopes: ['email', 'profile'],
-      webClientId: googleConfig.webClientId,
+      // webClientId: googleConfig.webClientId,
       iosClientId: googleConfig.iosClientId,
-      androidClientId: googleConfig.androidClientId,
-      offlineAccess: true,
+      // androidClientId: googleConfig.androidClientId,
+      // offlineAccess: true,
     });
 
     GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true }).catch(() => {
@@ -87,9 +87,9 @@ export function useGoogleAuth() {
   }, []);
 
   const signIn = useCallback(async () => {
-    if (isWeb) {
-      throw new Error('Google ログインはモバイルでのみ利用できます。');
-    }
+    // if (isWeb) {
+    //   throw new Error('Google ログインはモバイルでのみ利用できます。');
+    // }
 
     setBusy(true);
     try {
@@ -109,13 +109,13 @@ export function useGoogleAuth() {
   }, []);
 
   const signInSilently = useCallback(async () => {
-    if (isWeb) {
-      throw new Error('Google ログインはモバイルでのみ利用できます。');
-    }
+    // if (isWeb) {
+    //   throw new Error('Google ログインはモバイルでのみ利用できます。');
+    // }
 
     setBusy(true);
     try {
-      const result = await GoogleSignin.signInSilently({ webClientId: googleConfig.webClientId });
+      const result = await GoogleSignin.signInSilently(/* { webClientId: googleConfig.webClientId } */);
       const transformed = mapToAuthUser(result);
       setUser(transformed);
       setError(null);
@@ -130,10 +130,10 @@ export function useGoogleAuth() {
   }, []);
 
   const signOut = useCallback(async () => {
-    if (isWeb) {
-      setUser(null);
-      return;
-    }
+    // if (isWeb) {
+    //   setUser(null);
+    //   return;
+    // }
 
     setBusy(true);
     try {
