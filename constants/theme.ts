@@ -6,6 +6,8 @@
  * - Warm, calming colors that reduce anxiety
  * - Physical card metaphor with tactile feedback
  * - Gentle, non-rushing animations
+ *
+ * Typography now leans on a slender, futuristic gothic stack to keep the UI feeling advanced.
  */
 
 import { Platform } from 'react-native';
@@ -78,33 +80,39 @@ export const Colors = {
 
 export const Gradients = SHARED_GRADIENTS;
 
+const FUTURISTIC_FONT_STACK = '"Sora", "SF Pro Display", "Segoe UI", system-ui, sans-serif';
+const FUTURISTIC_SERIF_STACK = '"Sora", "SF Pro Display", "Georgia", "Times New Roman", serif';
+const FUTURISTIC_ROUND_STACK = '"SF Pro Rounded", "Hiragino Maru Gothic ProN", "Meiryo UI", sans-serif';
+const FUTURISTIC_MONO_STACK = '"JetBrains Mono", "SFMono-Regular", Menlo, Monaco, "Liberation Mono", monospace';
+const FUTURISTIC_JP_STACK = '"Noto Sans JP", "Sora", "SF Pro Display", sans-serif';
+
 // Typography - Using system fonts with specific weights for Japanese support
 export const Typography = {
   displayFont: Platform.select({
-    ios: 'Hiragino Mincho ProN',
-    android: 'serif',
-    default: 'serif',
+    ios: 'SF Pro Display',
+    android: 'Noto Sans JP',
+    default: FUTURISTIC_FONT_STACK,
   }),
   bodyFont: Platform.select({
-    ios: 'Hiragino Sans',
-    android: 'sans-serif',
-    default: 'System',
+    ios: 'SF Pro Text',
+    android: 'Noto Sans JP',
+    default: FUTURISTIC_FONT_STACK,
   }),
   fontFamily: Platform.select({
     ios: {
-      regular: 'Hiragino Sans',
-      medium: 'Hiragino Sans',
-      bold: 'Hiragino Sans',
+      regular: 'SF Pro Display',
+      medium: 'SF Pro Display',
+      bold: 'SF Pro Display',
     },
     android: {
-      regular: 'sans-serif',
-      medium: 'sans-serif-medium',
-      bold: 'sans-serif',
+      regular: 'sans-serif-light',
+      medium: 'sans-serif',
+      bold: 'sans-serif-medium',
     },
     default: {
-      regular: 'System',
-      medium: 'System',
-      bold: 'System',
+      regular: FUTURISTIC_FONT_STACK,
+      medium: FUTURISTIC_FONT_STACK,
+      bold: FUTURISTIC_FONT_STACK,
     },
   }),
 
@@ -258,21 +266,27 @@ export const LegacyColors = {
 // Legacy exports for compatibility
 export const Fonts = Platform.select({
   ios: {
-    sans: 'system-ui',
-    serif: 'ui-serif',
-    rounded: 'ui-rounded',
-    mono: 'ui-monospace',
+    sans: FUTURISTIC_FONT_STACK,
+    serif: FUTURISTIC_SERIF_STACK,
+    rounded: FUTURISTIC_ROUND_STACK,
+    mono: FUTURISTIC_MONO_STACK,
   },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
+  android: {
+    sans: FUTURISTIC_JP_STACK,
+    serif: '"Noto Serif JP", "Hiragino Mincho ProN", serif',
+    rounded: '"Noto Sans JP", "Kosugi Maru", "Meiryo UI", sans-serif',
+    mono: FUTURISTIC_MONO_STACK,
   },
   web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+    sans: FUTURISTIC_FONT_STACK,
+    serif: FUTURISTIC_SERIF_STACK,
+    rounded: FUTURISTIC_ROUND_STACK,
+    mono: FUTURISTIC_MONO_STACK,
+  },
+  default: {
+    sans: FUTURISTIC_FONT_STACK,
+    serif: FUTURISTIC_SERIF_STACK,
+    rounded: FUTURISTIC_ROUND_STACK,
+    mono: FUTURISTIC_MONO_STACK,
   },
 });

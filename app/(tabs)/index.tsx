@@ -6,6 +6,7 @@
  * 2. Welcome screen
  * 3. Camera guide & photo capture
  * 4. Card session with reference images
+ * 5. Followup - compare before/after
  *
  * Aesthetic: "Soft Kinetic Paper"
  */
@@ -20,6 +21,7 @@ import {
   ImageBackground,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
@@ -37,7 +39,14 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { CameraGuide } from '@/components/camera-guide';
+import {
+  CameraGuide,
+  AnalysisResult,
+  InitialAnalysisResult,
+  FollowupAnalysisResult,
+  Card,
+  PreviousSession,
+} from '@/components/camera-guide';
 import { CardDeck } from '@/components/card-deck';
 import { GoogleAuthPrompt } from '@/components/google-auth-prompt';
 import { Onboarding } from '@/components/onboarding';
@@ -49,18 +58,21 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // Default background for welcome screen
 const DEFAULT_BG = 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?w=800&q=80';
 
-type AppState = 'onboarding' | 'welcome' | 'camera' | 'session' | 'review';
+type AppState = 'onboarding' | 'welcome' | 'camera' | 'session' | 'review' | 'followup-camera' | 'followup-result';
 
 export default function HomeScreen() {
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
   const [appState, setAppState] = useState<AppState>('onboarding');
   const [roomImage, setRoomImage] = useState<string>(DEFAULT_BG);
-  const [cards, setCards] = useState<{ instruction: string }[]>([]);
-  const [reviewMode, setReviewMode] = useState(false);
+  const [cards, setCards] = useState<Card[]>([]);
   const [finalCheckMessage, setFinalCheckMessage] = useState<string | null>(null);
   const { user, busy, error, signIn } = useGoogleAuth();
   const [authPromptVisible, setAuthPromptVisible] = useState(false);
   const isSignedIn = Boolean(user);
+
+  // セッション状態（フォローアップ用）
+  const [previousSession, setPreviousSession] = useState<PreviousSession | null>(null);
+  const [followupResult, setFollowupResult] = useState<FollowupAnalysisResult | null>(null);
 
   const handleRequireLogin = useCallback(() => {
     setAuthPromptVisible(true);
@@ -102,52 +114,71 @@ export default function HomeScreen() {
     setAppState('welcome');
   }, []);
 
-  const startCamera = useCallback(
-    (forReview = false) => {
-      setFinalCheckMessage(null);
-      setReviewMode(forReview);
-      if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      }
-      setAppState('camera');
-    },
-    []
-  );
-
-  const handleStartCamera = useCallback(() => startCamera(false), [startCamera]);
-  const handleStartReviewCamera = useCallback(() => startCamera(true), [startCamera]);
-
-  const handleAnalysisComplete = useCallback((payload: { imageUri: string; cards: { instruction: string }[] }) => {
-    const normalizedCards = payload.cards ?? [];
-    setRoomImage(payload.imageUri || DEFAULT_BG);
-    setCards(normalizedCards);
-
-    if (reviewMode) {
-      setReviewMode(false);
-      if (normalizedCards.length === 0) {
-        setFinalCheckMessage('LLMによる確認では完了と判断されました');
-        setAppState('welcome');
-        return;
-      }
-      setAppState('session');
-      return;
+  const handleStartCamera = useCallback(() => {
+    setFinalCheckMessage(null);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
+    setAppState('camera');
+  }, []);
 
-    setAppState('session');
-  }, [reviewMode]);
+  const handleStartFollowupCamera = useCallback(() => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    setAppState('followup-camera');
+  }, []);
+
+  const handleAnalysisComplete = useCallback((result: AnalysisResult) => {
+    if (result.mode === 'initial') {
+      // 初回分析
+      setRoomImage(result.imageUri || DEFAULT_BG);
+      setCards(result.cards);
+      // セッション保存（フォローアップ用）
+      setPreviousSession({
+        imageBase64: result.imageBase64,
+        cards: result.cards,
+      });
+      setAppState('session');
+    } else {
+      // フォローアップ分析
+      setFollowupResult(result);
+      setAppState('followup-result');
+    }
+  }, []);
 
   const handleBackToWelcome = useCallback(() => {
     setCards([]);
     setFinalCheckMessage(null);
-    setReviewMode(false);
+    setPreviousSession(null);
+    setFollowupResult(null);
     setAppState('welcome');
   }, []);
 
   const handleSessionComplete = useCallback(() => {
-    setReviewMode(true);
-    setFinalCheckMessage(null);
     setAppState('review');
   }, []);
+
+  const handleContinueFromFollowup = useCallback(() => {
+    if (followupResult) {
+      // 残りタスク + 新しいタスクをカードに設定
+      const newCards = [...followupResult.remaining, ...followupResult.newTasks];
+      if (newCards.length === 0) {
+        setFinalCheckMessage('全部完了しました！おつかれさま');
+        setAppState('welcome');
+        return;
+      }
+      setCards(newCards);
+      // セッションを更新（次のフォローアップ用）
+      if (previousSession) {
+        setPreviousSession({
+          ...previousSession,
+          cards: newCards,
+        });
+      }
+      setAppState('session');
+    }
+  }, [followupResult, previousSession]);
 
   // Render based on app state
   if (appState === 'onboarding' && !hasSeenOnboarding) {
@@ -159,15 +190,36 @@ export default function HomeScreen() {
     );
   }
 
+  // 初回カメラ
   if (appState === 'camera') {
     return (
       <GestureHandlerRootView style={styles.container}>
         <StatusBar style="light" />
-        <CameraGuide onAnalysisComplete={handleAnalysisComplete} onBack={handleBackToWelcome} />
+        <CameraGuide
+          mode="initial"
+          onAnalysisComplete={handleAnalysisComplete}
+          onBack={handleBackToWelcome}
+        />
       </GestureHandlerRootView>
     );
   }
 
+  // フォローアップカメラ
+  if (appState === 'followup-camera') {
+    return (
+      <GestureHandlerRootView style={styles.container}>
+        <StatusBar style="light" />
+        <CameraGuide
+          mode="followup"
+          previousSession={previousSession ?? undefined}
+          onAnalysisComplete={handleAnalysisComplete}
+          onBack={() => setAppState('review')}
+        />
+      </GestureHandlerRootView>
+    );
+  }
+
+  // レビュー画面（片付け後の撮影を促す）
   if (appState === 'review') {
     return (
       <GestureHandlerRootView style={styles.container}>
@@ -201,11 +253,146 @@ export default function HomeScreen() {
               styles.reviewButton,
               pressed && styles.reviewButtonPressed,
             ]}
-            onPress={handleStartReviewCamera}
+            onPress={handleStartFollowupCamera}
           >
             <Animated.Text style={styles.reviewButtonText}>撮影する</Animated.Text>
           </Pressable>
+          <Pressable
+            style={styles.skipButton}
+            onPress={handleBackToWelcome}
+          >
+            <Animated.Text style={styles.skipButtonText}>スキップ</Animated.Text>
+          </Pressable>
         </View>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // フォローアップ結果画面
+  if (appState === 'followup-result' && followupResult) {
+    return (
+      <GestureHandlerRootView style={styles.container}>
+        <StatusBar style="dark" />
+        <LinearGradient
+          colors={Gradients.atmosphere}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.followupGradient}
+        />
+
+        <ScrollView
+          style={styles.followupContainer}
+          contentContainerStyle={styles.followupContent}
+        >
+          {/* フィードバック */}
+          <Animated.View
+            entering={SlideInDown.duration(500).springify()}
+            style={styles.feedbackCard}
+          >
+            <Animated.Text style={styles.feedbackEmoji}>
+              {followupResult.completed.length > 0 ? '🎉' : '💪'}
+            </Animated.Text>
+            <Animated.Text style={styles.feedbackText}>
+              {followupResult.feedback || 'お疲れさまでした！'}
+            </Animated.Text>
+          </Animated.View>
+
+          {/* 完了したタスク */}
+          {followupResult.completed.length > 0 && (
+            <Animated.View
+              entering={FadeIn.delay(200).duration(400)}
+              style={styles.resultSection}
+            >
+              <Animated.Text style={styles.resultSectionTitle}>
+                ✅ 完了したタスク ({followupResult.completed.length})
+              </Animated.Text>
+              {followupResult.completed.map((card, index) => (
+                <View key={`completed-${index}`} style={styles.completedCard}>
+                  <Animated.Text style={styles.completedCardText}>
+                    {card.instruction}
+                  </Animated.Text>
+                </View>
+              ))}
+            </Animated.View>
+          )}
+
+          {/* 残りのタスク */}
+          {followupResult.remaining.length > 0 && (
+            <Animated.View
+              entering={FadeIn.delay(400).duration(400)}
+              style={styles.resultSection}
+            >
+              <Animated.Text style={styles.resultSectionTitle}>
+                📋 まだ残っているタスク ({followupResult.remaining.length})
+              </Animated.Text>
+              {followupResult.remaining.map((card, index) => (
+                <View key={`remaining-${index}`} style={styles.remainingCard}>
+                  <Animated.Text style={styles.remainingCardText}>
+                    {card.instruction}
+                  </Animated.Text>
+                </View>
+              ))}
+            </Animated.View>
+          )}
+
+          {/* 新しいタスク */}
+          {followupResult.newTasks.length > 0 && (
+            <Animated.View
+              entering={FadeIn.delay(600).duration(400)}
+              style={styles.resultSection}
+            >
+              <Animated.Text style={styles.resultSectionTitle}>
+                ✨ 新たに見つかったタスク ({followupResult.newTasks.length})
+              </Animated.Text>
+              {followupResult.newTasks.map((card, index) => (
+                <View key={`new-${index}`} style={styles.newTaskCard}>
+                  <Animated.Text style={styles.newTaskCardText}>
+                    {card.instruction}
+                  </Animated.Text>
+                </View>
+              ))}
+            </Animated.View>
+          )}
+
+          {/* アクションボタン */}
+          <Animated.View
+            entering={FadeIn.delay(800).duration(400)}
+            style={styles.followupActions}
+          >
+            {(followupResult.remaining.length > 0 || followupResult.newTasks.length > 0) ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.continueButton,
+                  pressed && styles.continueButtonPressed,
+                ]}
+                onPress={handleContinueFromFollowup}
+              >
+                <Animated.Text style={styles.continueButtonText}>
+                  残りのタスクを続ける
+                </Animated.Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.doneButton,
+                  pressed && styles.doneButtonPressed,
+                ]}
+                onPress={handleBackToWelcome}
+              >
+                <Animated.Text style={styles.doneButtonText}>
+                  完了！ホームに戻る
+                </Animated.Text>
+              </Pressable>
+            )}
+
+            <Pressable
+              style={styles.skipButton}
+              onPress={handleBackToWelcome}
+            >
+              <Animated.Text style={styles.skipButtonText}>ホームに戻る</Animated.Text>
+            </Pressable>
+          </Animated.View>
+        </ScrollView>
       </GestureHandlerRootView>
     );
   }
@@ -654,6 +841,127 @@ const styles = StyleSheet.create({
     fontSize: Typography.size.md,
     fontWeight: '600',
     color: Colors.text.primary,
+  },
+  skipButton: {
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  skipButtonText: {
+    fontSize: Typography.size.sm,
+    color: Colors.text.tertiary,
+  },
+
+  // Followup result
+  followupGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  followupContainer: {
+    flex: 1,
+  },
+  followupContent: {
+    paddingTop: Platform.select({ ios: Spacing['4xl'], default: Spacing['3xl'] }),
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Spacing['4xl'],
+  },
+  feedbackCard: {
+    backgroundColor: Colors.card.background,
+    borderRadius: Radius.xl,
+    padding: Spacing.xl,
+    alignItems: 'center',
+    marginBottom: Spacing.xl,
+    ...Shadows.lg,
+  },
+  feedbackEmoji: {
+    fontSize: 48,
+    marginBottom: Spacing.md,
+  },
+  feedbackText: {
+    fontSize: Typography.size.xl,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    textAlign: 'center',
+  },
+  resultSection: {
+    marginBottom: Spacing.xl,
+  },
+  resultSectionTitle: {
+    fontSize: Typography.size.md,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: Spacing.md,
+  },
+  completedCard: {
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4CAF50',
+  },
+  completedCardText: {
+    fontSize: Typography.size.base,
+    color: Colors.text.secondary,
+    textDecorationLine: 'line-through',
+  },
+  remainingCard: {
+    backgroundColor: Colors.card.background,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.accent.coral,
+    ...Shadows.sm,
+  },
+  remainingCardText: {
+    fontSize: Typography.size.base,
+    color: Colors.text.primary,
+  },
+  newTaskCard: {
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: '#2196F3',
+  },
+  newTaskCardText: {
+    fontSize: Typography.size.base,
+    color: Colors.text.primary,
+  },
+  followupActions: {
+    marginTop: Spacing.xl,
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  continueButton: {
+    backgroundColor: Colors.accent.coral,
+    paddingHorizontal: Spacing['3xl'],
+    paddingVertical: Spacing.lg,
+    borderRadius: Radius['2xl'],
+    ...Shadows.md,
+  },
+  continueButtonPressed: {
+    opacity: 0.9,
+  },
+  continueButtonText: {
+    fontSize: Typography.size.md,
+    fontWeight: '600',
+    color: '#FFF',
+  },
+  doneButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: Spacing['3xl'],
+    paddingVertical: Spacing.lg,
+    borderRadius: Radius['2xl'],
+    ...Shadows.md,
+  },
+  doneButtonPressed: {
+    opacity: 0.9,
+  },
+  doneButtonText: {
+    fontSize: Typography.size.md,
+    fontWeight: '600',
+    color: '#FFF',
   },
 
   // How it works
