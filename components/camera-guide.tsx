@@ -3,15 +3,15 @@
  *
  * 撮影のコツを表示し、フレーミングガイドを提供
  * 実カメラで撮影し、サーバーに送信してカード文言を取得
+ * フォローアップモードで片付け前後の比較が可能
  */
 
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, Pressable, Platform, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Pressable, Platform, ActivityIndicator, Image } from 'react-native';
 import Animated, {
   FadeIn,
   FadeOut,
   SlideInUp,
-  SlideInDown,
   useSharedValue,
   useAnimatedStyle,
   withRepeat,
@@ -23,17 +23,54 @@ import * as Haptics from 'expo-haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as FileSystem from 'expo-file-system';
 import { Colors, Gradients, Typography, Spacing, Radius, Shadows } from '@/constants/theme';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8787';
 
+// === 型定義 ===
+
+export interface Card {
+  instruction: string;
+}
+
+export interface InitialAnalysisResult {
+  mode: 'initial';
+  imageUri: string;
+  imageBase64: string;
+  cards: Card[];
+}
+
+export interface FollowupAnalysisResult {
+  mode: 'followup';
+  imageUri: string;
+  completed: Card[];
+  remaining: Card[];
+  newTasks: Card[];
+  feedback: string;
+}
+
+export type AnalysisResult = InitialAnalysisResult | FollowupAnalysisResult;
+
+export interface PreviousSession {
+  imageBase64: string;
+  cards: Card[];
+}
+
 interface CameraGuideProps {
-  onAnalysisComplete: (payload: { imageUri: string; cards: Array<{ instruction: string }> }) => void;
+  mode?: 'initial' | 'followup';
+  previousSession?: PreviousSession;
+  onAnalysisComplete: (result: AnalysisResult) => void;
   onBack: () => void;
 }
 
-export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
-  const [showTips, setShowTips] = useState(true);
+export function CameraGuide({
+  mode = 'initial',
+  previousSession,
+  onAnalysisComplete,
+  onBack,
+}: CameraGuideProps) {
+  const [showTips, setShowTips] = useState(mode === 'initial');
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const cameraRef = React.useRef<CameraView>(null);
@@ -82,10 +119,16 @@ export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
     setErrorMessage(null);
   }, []);
 
+  // === API呼び出し ===
   const uploadAndAnalyze = useCallback(
-    async (payload: { file?: File; uri?: string; width?: number; height?: number }) => {
+    async (payload: {
+      file?: File;
+      uri?: string;
+      base64?: string;
+    }): Promise<AnalysisResult> => {
       const formData = new FormData();
 
+      // 画像をFormDataに追加
       if (payload.file) {
         formData.append('image', payload.file, payload.file.name);
       } else if (payload.uri) {
@@ -99,6 +142,15 @@ export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
       }
 
       formData.append('locale', 'ja-JP');
+      formData.append('mode', mode);
+
+      // フォローアップモードの場合、前回のデータを追加
+      if (mode === 'followup' && previousSession) {
+        formData.append('previousImage', previousSession.imageBase64);
+        formData.append('previousCards', JSON.stringify(previousSession.cards));
+      }
+
+      console.log(`[CameraGuide] Sending ${mode} request to ${API_BASE_URL}`);
 
       const response = await fetch(`${API_BASE_URL}/api/analysis/room-photo`, {
         method: 'POST',
@@ -110,27 +162,43 @@ export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
 
       if (!response.ok) {
         const text = await response.text();
+        console.error('[CameraGuide] API error:', text);
         throw new Error(text || `サーバーエラー (${response.status})`);
       }
 
-      const data = (await response.json()) as {
-        cards?: Array<{ instruction?: string }>;
-      };
-      const cards = (data.cards ?? [])
-        .filter((card) => typeof card?.instruction === 'string')
-        .map((card) => ({
-          instruction: card.instruction as string,
-        }));
+      const data = await response.json();
+      console.log('[CameraGuide] API response:', data);
 
-      if (cards.length === 0) {
-        throw new Error('カードが生成されませんでした');
+      if (mode === 'initial') {
+        const cards = (data.cards ?? [])
+          .filter((card: any) => typeof card?.instruction === 'string')
+          .map((card: any) => ({ instruction: card.instruction }));
+
+        if (cards.length === 0) {
+          throw new Error('カードが生成されませんでした');
+        }
+
+        return {
+          mode: 'initial',
+          imageUri: payload.uri ?? '',
+          imageBase64: payload.base64 ?? '',
+          cards,
+        };
+      } else {
+        return {
+          mode: 'followup',
+          imageUri: payload.uri ?? '',
+          completed: data.completed ?? [],
+          remaining: data.remaining ?? [],
+          newTasks: data.newTasks ?? [],
+          feedback: data.feedback ?? '',
+        };
       }
-
-      return { cards };
     },
-    []
+    [mode, previousSession]
   );
 
+  // === ネイティブカメラ撮影 ===
   const handleCaptureAndAnalyze = useCallback(async () => {
     try {
       if (!cameraRef.current) {
@@ -150,33 +218,41 @@ export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
       if (longEdge > 1280) {
         if (width && height) {
           actions.push(
-            width >= height
-              ? { resize: { width: 1280 } }
-              : { resize: { height: 1280 } }
+            width >= height ? { resize: { width: 1280 } } : { resize: { height: 1280 } }
           );
         } else {
           actions.push({ resize: { width: 1280 } });
         }
       }
 
-      const processed = await manipulateAsync(
-        uri,
-        actions,
-        {
-          compress: 0.75,
-          format: SaveFormat.JPEG,
-        }
-      );
+      const processed = await manipulateAsync(uri, actions, {
+        compress: 0.75,
+        format: SaveFormat.JPEG,
+        base64: true,
+      });
 
-      const result = await uploadAndAnalyze({ uri: processed.uri, width, height });
-      onAnalysisComplete({ imageUri: processed.uri, cards: result.cards });
+      const result = await uploadAndAnalyze({
+        uri: processed.uri,
+        base64: processed.base64,
+      });
+
+      if (result.mode === 'initial') {
+        result.imageUri = processed.uri;
+        result.imageBase64 = processed.base64 ?? '';
+      } else {
+        result.imageUri = processed.uri;
+      }
+
+      onAnalysisComplete(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : '撮影に失敗しました';
+      console.error('[CameraGuide] Error:', error);
       setErrorMessage(message);
       setIsProcessing(false);
     }
   }, [handleCapture, onAnalysisComplete, uploadAndAnalyze]);
 
+  // === Web用ファイル選択 ===
   const handleWebPick = useCallback(() => {
     setErrorMessage(null);
     setShowTips(false);
@@ -222,15 +298,17 @@ export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
 
         const blob = await new Promise<Blob>((resolve, reject) => {
           canvas.toBlob(
-            (result) => (result ? resolve(result) : reject(new Error('画像変換に失敗しました'))),
+            (result) =>
+              result ? resolve(result) : reject(new Error('画像変換に失敗しました')),
             'image/jpeg',
             0.9
           );
         });
 
         const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        const base64 = dataUrl.split(',')[1];
         const jpegFile = new File([blob], 'room.jpg', { type: 'image/jpeg' });
-        return { file: jpegFile, dataUrl };
+        return { file: jpegFile, dataUrl, base64 };
       } catch {
         throw new Error('画像の読み込みに失敗しました');
       }
@@ -248,8 +326,18 @@ export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
         }
 
         const converted = await convertToJpeg(file);
-        const result = await uploadAndAnalyze({ file: converted.file });
-        onAnalysisComplete({ imageUri: converted.dataUrl ?? '', cards: result.cards });
+        const result = await uploadAndAnalyze({
+          file: converted.file,
+          uri: converted.dataUrl,
+          base64: converted.base64,
+        });
+
+        if (result.mode === 'initial') {
+          result.imageUri = converted.dataUrl;
+          result.imageBase64 = converted.base64;
+        }
+
+        onAnalysisComplete(result);
       } catch (error) {
         const message = error instanceof Error ? error.message : '画像の解析に失敗しました';
         setErrorMessage(message);
@@ -264,7 +352,8 @@ export function CameraGuide({ onAnalysisComplete, onBack }: CameraGuideProps) {
     setShowTips(false);
   }, []);
 
-if (Platform.OS === 'web') {
+  // === Web UI ===
+  if (Platform.OS === 'web') {
     return (
       <View style={styles.container}>
         <LinearGradient
@@ -275,15 +364,16 @@ if (Platform.OS === 'web') {
           pointerEvents="none"
         />
         <View style={styles.webContainer}>
-          <Animated.Text style={styles.webTitle}>画像を選んで解析</Animated.Text>
+          <Animated.Text style={styles.webTitle}>
+            {mode === 'initial' ? '画像を選んで解析' : '片付け後の写真を選択'}
+          </Animated.Text>
           <Animated.Text style={styles.webText}>
-            デバッグ用に、写真を選択してカード文言を生成します。
+            {mode === 'initial'
+              ? 'デバッグ用に、写真を選択してカード文言を生成します。'
+              : '片付けた後の写真を選択して、進捗を確認しましょう。'}
           </Animated.Text>
           <Pressable
-            style={({ pressed }) => [
-              styles.webButton,
-              pressed && styles.webButtonPressed,
-            ]}
+            style={({ pressed }) => [styles.webButton, pressed && styles.webButtonPressed]}
             onPress={handleWebPick}
             disabled={isProcessing}
           >
@@ -299,6 +389,7 @@ if (Platform.OS === 'web') {
     );
   }
 
+  // === Permission Loading ===
   if (!permission) {
     return (
       <View style={[styles.container, styles.permissionContainer]}>
@@ -314,6 +405,7 @@ if (Platform.OS === 'web') {
     );
   }
 
+  // === Permission Denied ===
   if (!permission.granted) {
     return (
       <View style={[styles.container, styles.permissionContainer]}>
@@ -338,6 +430,7 @@ if (Platform.OS === 'web') {
     );
   }
 
+  // === Camera UI ===
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -349,20 +442,24 @@ if (Platform.OS === 'web') {
       />
       {/* カメラビューファインダー */}
       <View style={styles.viewfinder}>
-        {/* プレビュー背景 */}
         <CameraView ref={cameraRef} style={styles.previewImage} facing="back" />
 
-        {/* スキャンライン */}
-        {!isProcessing && (
-          <Animated.View style={[styles.scanLine, scanLineStyle]} />
+        {/* 前回撮影画像のゴーストオーバーレイ（フォローアップモード時） */}
+        {mode === 'followup' && previousSession?.imageBase64 && (
+          <Image
+            source={{ uri: `data:image/jpeg;base64,${previousSession.imageBase64}` }}
+            style={styles.ghostOverlay}
+            resizeMode="cover"
+          />
         )}
+
+        {/* スキャンライン */}
+        {!isProcessing && <Animated.View style={[styles.scanLine, scanLineStyle]} />}
 
         {/* フレーミングガイド - 3x3グリッド */}
         <View style={styles.gridOverlay}>
-          {/* 縦線 */}
           <View style={[styles.gridLine, styles.gridLineVertical, { left: '33.33%' }]} />
           <View style={[styles.gridLine, styles.gridLineVertical, { left: '66.66%' }]} />
-          {/* 横線 */}
           <View style={[styles.gridLine, styles.gridLineHorizontal, { top: '33.33%' }]} />
           <View style={[styles.gridLine, styles.gridLineHorizontal, { top: '66.66%' }]} />
         </View>
@@ -383,8 +480,8 @@ if (Platform.OS === 'web') {
         )}
       </View>
 
-      {/* 撮影ヒント（下部カード） */}
-      {showTips && (
+      {/* 撮影ヒント（初回モードのみ） */}
+      {showTips && mode === 'initial' && (
         <Animated.View
           entering={SlideInUp.duration(500).springify()}
           exiting={FadeOut.duration(200)}
@@ -404,10 +501,20 @@ if (Platform.OS === 'web') {
           </View>
 
           <View style={styles.tipsNote}>
-            <Animated.Text style={styles.tipsNoteText}>
-              散らかっていても大丈夫
-            </Animated.Text>
+            <Animated.Text style={styles.tipsNoteText}>散らかっていても大丈夫</Animated.Text>
           </View>
+        </Animated.View>
+      )}
+
+      {/* フォローアップモードのヒント */}
+      {mode === 'followup' && !isProcessing && (
+        <Animated.View
+          entering={SlideInUp.duration(500).springify()}
+          style={styles.followupHint}
+        >
+          <Animated.Text style={styles.followupHintText}>
+            片付けた後の同じ場所を撮影してね
+          </Animated.Text>
         </Animated.View>
       )}
 
@@ -419,7 +526,7 @@ if (Platform.OS === 'web') {
 
         <Animated.View entering={FadeIn.delay(300)} style={styles.topHint}>
           <Animated.Text style={styles.topHintText}>
-            片付けたい場所を撮影
+            {mode === 'initial' ? '片付けたい場所を撮影' : '片付け後を撮影'}
           </Animated.Text>
         </Animated.View>
 
@@ -429,7 +536,7 @@ if (Platform.OS === 'web') {
       {/* 下部コントロール */}
       <View style={styles.bottomControls}>
         <LinearGradient
-          colors={[ 'rgba(10, 18, 34, 0.95)', 'rgba(10, 18, 34, 0.5)', 'transparent' ]}
+          colors={['rgba(10, 18, 34, 0.95)', 'rgba(10, 18, 34, 0.5)', 'transparent']}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
           style={styles.bottomGradient}
@@ -442,6 +549,7 @@ if (Platform.OS === 'web') {
               styles.captureButton,
               pressed && styles.captureButtonPressed,
               isProcessing && styles.captureButtonCapturing,
+              mode === 'followup' && styles.captureButtonFollowup,
             ]}
             onPress={handleCaptureAndAnalyze}
             disabled={isProcessing}
@@ -450,7 +558,12 @@ if (Platform.OS === 'web') {
               {isProcessing ? (
                 <Animated.View entering={FadeIn} style={styles.capturingIndicator} />
               ) : (
-                <View style={styles.captureIcon} />
+                <View
+                  style={[
+                    styles.captureIcon,
+                    mode === 'followup' && styles.captureIconFollowup,
+                  ]}
+                />
               )}
             </View>
           </Pressable>
@@ -459,7 +572,11 @@ if (Platform.OS === 'web') {
         {/* ボタンラベル */}
         <Animated.View entering={FadeIn.delay(400)}>
           <Animated.Text style={styles.captureLabel}>
-            {isProcessing ? '解析中...' : 'タップして撮影'}
+            {isProcessing
+              ? '解析中...'
+              : mode === 'initial'
+              ? 'タップして撮影'
+              : '完了報告'}
           </Animated.Text>
         </Animated.View>
 
@@ -495,6 +612,10 @@ const styles = StyleSheet.create({
   },
   previewImage: {
     ...StyleSheet.absoluteFillObject,
+  },
+  ghostOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.35,
   },
   scanLine: {
     position: 'absolute',
@@ -624,6 +745,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  followupHint: {
+    position: 'absolute',
+    bottom: 160,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+  },
+  followupHintText: {
+    fontSize: Typography.size.base,
+    color: '#FFF',
+    textAlign: 'center',
+    fontWeight: '600',
+  },
   topBar: {
     position: 'absolute',
     top: 0,
@@ -693,6 +829,9 @@ const styles = StyleSheet.create({
   captureButtonCapturing: {
     backgroundColor: Colors.accent.coral,
   },
+  captureButtonFollowup: {
+    borderColor: 'rgba(76, 175, 80, 0.5)',
+  },
   captureButtonInner: {
     width: 56,
     height: 56,
@@ -706,6 +845,9 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     backgroundColor: Colors.accent.coral,
+  },
+  captureIconFollowup: {
+    backgroundColor: '#4CAF50',
   },
   capturingIndicator: {
     width: 24,
